@@ -20,7 +20,14 @@ use awd_policy::{explain, Decision, Policy, Severity, Verdict};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "macos")]
 const DEFAULT_DATA_DIR: &str = "/Library/Application Support/AIWorkstationDefence";
+#[cfg(target_os = "linux")]
+const DEFAULT_DATA_DIR: &str = "/var/lib/ai-workstation-defence";
+#[cfg(windows)]
+const DEFAULT_DATA_DIR: &str = r"C:\ProgramData\AIWorkstationDefence";
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+const DEFAULT_DATA_DIR: &str = "awd-data";
 
 #[derive(Parser)]
 #[command(name = "awd", version, about = "See exactly what AI agents do on this machine")]
@@ -94,7 +101,7 @@ fn invoking_home(explicit: Option<String>) -> String {
         let base = if cfg!(target_os = "macos") { "/Users" } else { "/home" };
         return format!("{base}/{user}");
     }
-    std::env::var("HOME").unwrap_or_default()
+    std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()
 }
 
 fn paths(data_dir: &Path) -> (PathBuf, PathBuf) {

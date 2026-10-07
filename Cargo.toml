@@ -26,6 +26,7 @@ thiserror = "2"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
+getrandom = "0.3"
 awd-core = { path = "crates/awd-core" }
 awd-policy = { path = "crates/awd-policy" }
 awd-log = { path = "crates/awd-log" }

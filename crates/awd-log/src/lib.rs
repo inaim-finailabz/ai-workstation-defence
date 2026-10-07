@@ -7,10 +7,12 @@
 //!
 //! This makes tampering *detectable*. Keeping the log out of the agent's
 //! reach in the first place is the job of file permissions: the daemon runs
-//! as root and the log directory is 0700.
+//! as root and the log directory is 0700 (on Windows, place the data
+//! directory under C:\ProgramData, which standard users cannot modify).
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
@@ -31,6 +33,23 @@ pub enum LogError {
     Json(#[from] serde_json::Error),
     #[error("log chain broken at entry {0}")]
     Broken(u64),
+    #[error("no secure random source: {0}")]
+    Random(String),
+}
+
+/// Owner-only file (0600) on Unix; inherits the directory's ACL on Windows.
+fn private_file(opts: &mut OpenOptions) -> &mut OpenOptions {
+    #[cfg(unix)]
+    opts.mode(0o600);
+    opts
+}
+
+/// Owner-only directory (0700) on Unix.
+fn make_private_dir(dir: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,12 +73,11 @@ pub fn load_or_create_key(path: &Path) -> Result<Vec<u8>, LogError> {
         return Ok(fs::read(path)?);
     }
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+        make_private_dir(dir)?;
     }
     let mut key = vec![0u8; 32];
-    File::open("/dev/urandom")?.read_exact(&mut key)?;
-    let mut f = OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    getrandom::fill(&mut key).map_err(|e| LogError::Random(e.to_string()))?;
+    let mut f = private_file(OpenOptions::new().write(true).create_new(true)).open(path)?;
     f.write_all(&key)?;
     Ok(key)
 }
@@ -83,7 +101,7 @@ impl AuditLog {
         } else {
             (GENESIS.to_string(), 0)
         };
-        let file = OpenOptions::new().create(true).append(true).mode(0o600).open(path)?;
+        let file = private_file(OpenOptions::new().create(true).append(true)).open(path)?;
         Ok(Self { file, key, last_mac, next_seq })
     }
 

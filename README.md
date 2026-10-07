@@ -1,5 +1,7 @@
 # AI Workstation Defence
 
+[![verify](https://github.com/inaim-finailabz/ai-workstation-defence/actions/workflows/ci.yml/badge.svg)](https://github.com/inaim-finailabz/ai-workstation-defence/actions/workflows/ci.yml)
+
 **See exactly what AI agents do on your computer.**
 
 AI agents now run on our own laptops and workstations: coding assistants, summarisers, and tool-using agents with shell, file, browser and email access. They are useful, and they get more capable and more persistent with every release. Persistent means that when one path is blocked, they try another.
@@ -32,6 +34,20 @@ Log integrity: 13 entries, unaltered
 
 The output above comes from the simulated session in [`examples/sample-session.jsonl`](examples/sample-session.jsonl). The agent edits a file and runs tests, which stay quiet. Then it reads a secrets file, starts Python to read an SSH key and connect out, edits its own configuration, and installs a start-up item.
 
+## Can I trust it?
+
+A tool that watches your computer needs deep access, so **don't take our word for it. Check it yourself:**
+
+```bash
+./scripts/verify.sh                                              # macOS / Linux
+powershell -ExecutionPolicy Bypass -File scripts\verify.ps1      # Windows
+```
+
+This builds the tool from source and runs every test. It replays a sample session, tampers with the log to show the tampering is caught, and runs the tool with the network cut off to show it needs none. Automated **trust tests** fail if anyone adds network code, network libraries, unexpected programs, new file access, environment secrets or `unsafe` code. The same checks run publicly on every commit, on Linux, macOS and Windows.
+
+- **[TESTING.md](docs/TESTING.md):** what every test proves, in plain words
+- **[RUNBOOK.md](docs/RUNBOOK.md):** how to build, verify and run on macOS, Linux and Windows
+
 ## How it works
 
 | Principle | How |
@@ -55,10 +71,10 @@ The output above comes from the simulated session in [`examples/sample-session.j
 
 ## Try it
 
-Requires Rust 1.80+.
+Full step-by-step instructions for each system are in the **[runbook](docs/RUNBOOK.md)**. The short version (Rust 1.80+):
 
 ```bash
-cargo build --release
+cargo build --release --locked
 
 # Replay the simulated session (no special permissions needed)
 ./target/release/awd watch --source replay --input examples/sample-session.jsonl --data-dir ./awd-data --home /Users/ana
@@ -108,7 +124,9 @@ crates/awd-policy     crown-jewel classification, red-line rules, plain-language
 crates/awd-log        append-only HMAC-chained log + verifier
 crates/awd-collector  eslogger (macOS), lsof network poller, replay files
 crates/awd-cli        the `awd` command
-docs/                 architecture, decisions, white paper
+crates/awd-cli/tests  end-to-end and trust tests
+scripts/              verify.sh (macOS/Linux), verify.ps1 (Windows)
+docs/                 testing, runbook, decisions, white paper
 ```
 
 ## License

@@ -1,0 +1,45 @@
+# Public, reproducible verification on every commit: anyone can read the logs.
+name: verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install strace (Linux network trace)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y strace
+      - name: Allow unprivileged network namespaces (Linux)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Build, test, replay, tamper check, no-network run
+        if: runner.os != 'Windows'
+        run: ./scripts/verify.sh
+      - name: Build, test, replay, tamper check, firewall-blocked run
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify.ps1
+
+  audit:
+    name: known vulnerabilities in dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
