@@ -1,0 +1,11 @@
+[package]
+name = "awd-core"
+description = "Event schema and agent attribution for AI Workstation Defence"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true

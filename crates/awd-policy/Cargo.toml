@@ -1,0 +1,11 @@
+[package]
+name = "awd-policy"
+description = "Crown-jewel classification, red-line alerts and plain-language explanations"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+awd-core.workspace = true
+serde.workspace = true
+chrono.workspace = true

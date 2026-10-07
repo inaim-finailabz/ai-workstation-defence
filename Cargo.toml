@@ -1,0 +1,31 @@
+[workspace]
+members = [
+    "crates/awd-core",
+    "crates/awd-policy",
+    "crates/awd-log",
+    "crates/awd-collector",
+    "crates/awd-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["AI Labz Ltd"]
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+thiserror = "2"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+awd-core = { path = "crates/awd-core" }
+awd-policy = { path = "crates/awd-policy" }
+awd-log = { path = "crates/awd-log" }
+awd-collector = { path = "crates/awd-collector" }

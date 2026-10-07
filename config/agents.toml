@@ -1,0 +1,44 @@
+# AI agents to attribute activity to. A process is an agent's root when its
+# executable -- or one of its first arguments, for `node .../claude` or
+# `python -m aider` -- starts with one of `match_any` (case-insensitive).
+# Everything that root process starts inherits the agent's identity.
+
+[[agent]]
+id = "claude-code"
+name = "Claude Code"
+match_any = ["claude"]
+
+[[agent]]
+id = "codex"
+name = "OpenAI Codex CLI"
+match_any = ["codex"]
+
+[[agent]]
+id = "gemini-cli"
+name = "Gemini CLI"
+match_any = ["gemini"]
+
+[[agent]]
+id = "cursor"
+name = "Cursor"
+match_any = ["cursor"]
+
+[[agent]]
+id = "windsurf"
+name = "Windsurf"
+match_any = ["windsurf"]
+
+[[agent]]
+id = "aider"
+name = "Aider"
+match_any = ["aider"]
+
+[[agent]]
+id = "goose"
+name = "Goose"
+match_any = ["goose"]
+
+[[agent]]
+id = "opencode"
+name = "opencode"
+match_any = ["opencode"]
