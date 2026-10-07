@@ -111,6 +111,12 @@ crates/awd-cli        the `awd` command
 docs/                 architecture, decisions, white paper
 ```
 
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option.
+
+Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in this work, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
 ---
 
-© 2026 AI Labz Ltd. All rights reserved. AI Labz Ltd is the legal owner of all intellectual property developed under the FinAI Labz brand, including open-source and proprietary technology.
+© 2026 AI Labz Ltd. AI Labz Ltd is the legal owner of all intellectual property developed under the FinAI Labz brand, including open-source and proprietary technology. This project is open source under the licenses above.

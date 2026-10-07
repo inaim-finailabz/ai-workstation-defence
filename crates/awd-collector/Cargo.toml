@@ -4,6 +4,7 @@ description = "OS-level event sources: macOS eslogger, network polling, replay f
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 awd-core.workspace = true

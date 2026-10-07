@@ -4,6 +4,7 @@ description = "awd: watch, verify and read the AI agent activity log"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "awd"

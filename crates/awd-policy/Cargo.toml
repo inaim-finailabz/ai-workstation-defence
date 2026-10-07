@@ -4,6 +4,7 @@ description = "Crown-jewel classification, red-line alerts and plain-language ex
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 awd-core.workspace = true

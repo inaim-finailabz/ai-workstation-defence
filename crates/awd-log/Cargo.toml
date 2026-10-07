@@ -4,6 +4,7 @@ description = "Append-only, hash-chained, HMAC-authenticated activity log"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 serde.workspace = true
