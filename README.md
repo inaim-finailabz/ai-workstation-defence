@@ -102,6 +102,9 @@ This is an early, working prototype. Know its limits:
 - **Root is the trust anchor.** An agent running as root, or a user who approves it, can defeat any local monitor. Run agents as a normal user.
 - **Agent recognition is by name.** A renamed binary is not recognised as an agent (its actions are still visible to the OS, just not attributed).
 - Not yet tested on large live workloads. Event volume from `open` can be high.
+- **Cutting off the newest log entries is not detected.** A log truncated to its first lines still passes `awd verify`. The key also sits beside the log, so anyone who can read both can rewrite the whole chain. The fix is an anchor (entry count and last MAC) kept where the agent cannot write, checked by `verify`.
+- **`.env.example` raises a HIGH alert.** Every `.env.*` file is classed as secrets, although coding agents read `.env.example` routinely.
+- **"New destination" alerts repeat after a restart.** The seen-destinations list is held in memory and is not rebuilt from the log when `watch` starts.
 
 ## Roadmap
 
@@ -111,6 +114,9 @@ This is an early, working prototype. Know its limits:
    - Network Extension for every connection
    - desktop app (Tauri)
    - signed updates
+   - honeytoken paths: bait files listed in the config, where any touch by an agent is critical
+   - strike counter: red-line alerts counted per agent, with `narrow-recommended` raised at a threshold and a stricter rule set applied after it
+   - snapshot before write: the file is cloned before a write, delete or rename is allowed, and only the snapshot ID is logged
 3. **Next: per-agent sandboxes (paper Layer 4).** Agents may touch only their project folder and listed destinations, enforced by the OS.
 4. **Later: anomaly detection (paper Layer 5)** against each agent's normal behaviour, plus Linux and Windows.
 
