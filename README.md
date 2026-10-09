@@ -111,8 +111,8 @@ This is an early, working prototype. Know its limits:
    - Network Extension for every connection
    - desktop app (Tauri)
    - signed updates
-3. **Layer 2:** per-agent sandboxes. Agents may touch only their project folder and listed destinations, enforced by the OS.
-4. **Layer 3:** anomaly detection against each agent's normal behaviour, plus Linux and Windows.
+3. **Next: per-agent sandboxes (paper Layer 4).** Agents may touch only their project folder and listed destinations, enforced by the OS.
+4. **Later: anomaly detection (paper Layer 5)** against each agent's normal behaviour, plus Linux and Windows.
 
 The plan and the v1 scope were reviewed by **[Assembly of Elders](docs/decisions/0001-v1-scope.md)**, a multi-model review board with Claude, GPT and DeepSeek in expert roles. The board split between "logging first" and "sandbox first", and the owner chose logging plus a crown-jewel block.
 

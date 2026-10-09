@@ -2,6 +2,8 @@
 
 **Date:** 2026-10-07 · **Status:** accepted · **Decided by:** owner, after an Assembly of Elders review
 
+*Note, 2026-10-10: this record numbers the tool's own build stages. In the [white paper](../whitepaper/), sandboxing ("layer 2" here) is Layer 4 and anomaly detection is Layer 5.*
+
 ## Question
 
 AI agents run locally on our workstations. Labs keep training more capable and more persistent ones. How do we *know* they are not intruding into private data, and what is the first layer to build?
