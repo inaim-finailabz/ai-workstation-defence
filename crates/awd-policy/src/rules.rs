@@ -28,8 +28,8 @@ pub struct Alert {
 #[serde(rename_all = "snake_case")]
 pub enum Decision {
     Allow,
-    /// The policy says block. In v0 this is recorded, not yet enforced
-    /// (enforcement needs Endpoint Security AUTH events on macOS).
+    /// The policy says block. In v0 this is only recorded: the action still
+    /// goes ahead (enforcement needs Endpoint Security AUTH events on macOS).
     Block,
 }
 

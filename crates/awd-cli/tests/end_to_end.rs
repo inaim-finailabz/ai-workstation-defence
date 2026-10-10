@@ -55,12 +55,13 @@ fn sample_session_reports_what_the_readme_promises() {
     for expected in [
         "Claude Code",
         "Private data: touched SSH keys (1 times)",
-        "Policy would have blocked 1 actions.",
+        "Not blocked: 1 actions the policy marks for blocking went ahead (this version only records).",
+        "[policy: WOULD BLOCK -- not enforced in this version, the action went ahead]",
         "Alerts: 2 critical, 2 high, 1 notices",
         "(via python3) read ~/.ssh/id_ed25519",
         "changed an AI agent's own configuration",
         "changed a start-up or scheduled-task location",
-        "Log integrity: 13 entries, unaltered",
+        "Log integrity: 13 entries, chain and head record intact",
     ] {
         assert!(report.contains(expected), "report is missing {expected:?}:\n{report}");
     }
@@ -112,6 +113,7 @@ fn log_and_key_are_private_to_their_owner() {
     assert_eq!(mode(data.clone()), 0o700, "data directory");
     assert_eq!(mode(data.join("log.key")), 0o600, "log key");
     assert_eq!(mode(data.join("activity.log")), 0o600, "activity log");
+    assert_eq!(mode(data.join("log.head")), 0o600, "head record");
 }
 
 #[test]
@@ -119,7 +121,7 @@ fn an_unaltered_log_verifies() {
     let data = record("verify-ok", &sample());
     let out = awd(&["verify", "--data-dir", data.to_str().unwrap()]);
     assert!(out.status.success());
-    assert!(text(&out).contains("OK: 13 entries, chain intact"));
+    assert!(text(&out).contains("OK: 13 entries, chain intact, head record matches"));
 }
 
 #[test]
@@ -134,7 +136,8 @@ fn editing_one_character_is_detected() {
     assert!(text(&out).contains("ALTERED"));
 
     let report = awd(&["report", "--data-dir", data.to_str().unwrap(), "--home", "/Users/ana"]);
-    assert!(text(&report).contains("WARNING: the log was altered"));
+    assert!(text(&report).contains("WARNING: the log failed its integrity check"));
+    assert!(text(&report).contains("FAILED (see the warning above)"));
 }
 
 #[test]
@@ -159,4 +162,94 @@ fn a_log_forged_without_the_key_is_detected() {
     let out = awd(&["verify", "--data-dir", data.to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(2));
     assert!(text(&out).contains("breaks at entry 0"));
+}
+
+/// Keeps only the first `n` lines of the log.
+fn cut_log(data: &Path, n: usize) {
+    let log = data.join("activity.log");
+    let kept: String = fs::read_to_string(&log).unwrap().lines().take(n).map(|l| format!("{l}\n")).collect();
+    fs::write(&log, kept).unwrap();
+}
+
+#[test]
+fn cutting_off_the_newest_entries_is_detected() {
+    // The first 5 lines are still a valid chain. Everything after them,
+    // including the SSH-key read, is gone.
+    let data = record("verify-cut", &sample());
+    cut_log(&data, 5);
+
+    let out = awd(&["verify", "--data-dir", data.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    assert!(text(&out).contains("CUT SHORT"), "{}", text(&out));
+
+    let report = awd(&["report", "--data-dir", data.to_str().unwrap(), "--home", "/Users/ana"]);
+    assert!(text(&report).contains("WARNING: the log failed its integrity check"));
+
+    // Recording must not carry on over the gap as if nothing happened.
+    let again = awd(&[
+        "watch", "--source", "replay", "--input", sample().to_str().unwrap(),
+        "--data-dir", data.to_str().unwrap(), "--home", "/Users/ana",
+    ]);
+    assert!(!again.status.success());
+    assert!(text(&again).contains("cut short"), "{}", text(&again));
+}
+
+#[test]
+fn deleting_the_head_record_does_not_hide_a_cut() {
+    let data = record("verify-no-head", &sample());
+    cut_log(&data, 5);
+    fs::remove_file(data.join("log.head")).unwrap();
+    let out = awd(&["verify", "--data-dir", data.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    assert!(text(&out).contains("NO HEAD RECORD"), "{}", text(&out));
+}
+
+#[test]
+fn deleting_the_whole_log_is_detected() {
+    let data = record("verify-wipe", &sample());
+    fs::remove_file(data.join("activity.log")).unwrap();
+    let out = awd(&["verify", "--data-dir", data.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    assert!(text(&out).contains("CUT SHORT"), "{}", text(&out));
+}
+
+#[test]
+fn an_anchor_kept_elsewhere_catches_a_rollback_of_log_and_head_together() {
+    let dir = scratch("verify-anchor");
+    let data = dir.join("data");
+    let half = dir.join("half.jsonl");
+    let lines: Vec<String> = fs::read_to_string(sample()).unwrap().lines().map(String::from).collect();
+    fs::write(&half, lines[..6].join("\n") + "\n").unwrap();
+    let watch = |input: &Path| {
+        let out = awd(&[
+            "watch", "--source", "replay", "--input", input.to_str().unwrap(),
+            "--data-dir", data.to_str().unwrap(), "--home", "/Users/ana",
+        ]);
+        assert!(out.status.success(), "{}", text(&out));
+    };
+
+    // Record part of a session and save the whole data directory, as someone
+    // who can write there could.
+    watch(&half);
+    let early = dir.join("early");
+    fs::create_dir_all(&early).unwrap();
+    for f in ["activity.log", "log.head"] {
+        fs::copy(data.join(f), early.join(f)).unwrap();
+    }
+
+    // Record more, and take an anchor off the machine.
+    watch(&sample());
+    let anchor = text(&awd(&["anchor", "--data-dir", data.to_str().unwrap()])).trim().to_string();
+    let verify = |anchor: &str| awd(&["verify", "--data-dir", data.to_str().unwrap(), "--anchor", anchor]);
+    assert!(text(&verify(&anchor)).contains("anchor holds"), "{anchor}");
+
+    // Put the early log and its matching head record back.
+    for f in ["activity.log", "log.head"] {
+        fs::copy(early.join(f), data.join(f)).unwrap();
+    }
+    let plain = awd(&["verify", "--data-dir", data.to_str().unwrap()]);
+    assert!(plain.status.success(), "without an anchor, a matched rollback passes: {}", text(&plain));
+    let out = verify(&anchor);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    assert!(text(&out).contains("rolled back"), "{}", text(&out));
 }

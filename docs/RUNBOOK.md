@@ -8,7 +8,9 @@
 | Verify a log, read reports, replay sessions | yes | yes | yes |
 | **Live watching of AI agents** | **yes** | not yet (eBPF source planned) | not yet (ETW source planned) |
 
-We publish no prebuilt binaries. You build from the source you can read, so you know exactly what runs.
+We publish no prebuilt binaries. You build from source you can read.
+
+`awd` records and alerts. It does not block anything in this version.
 
 ---
 
@@ -30,7 +32,7 @@ cd ai-workstation-defence
 ./scripts/verify.sh
 ```
 
-Every step should print `PASS`. See [TESTING.md](TESTING.md) for what each step proves.
+Every step should print `PASS`. See [TESTING.md](TESTING.md) for what each step checks, and what it does not.
 
 ### 3. Watch your AI agents live
 
@@ -47,8 +49,13 @@ Every step should print `PASS`. See [TESTING.md](TESTING.md) for what each step 
    ```bash
    sudo ./target/release/awd report          # summary + what needs your attention
    sudo ./target/release/awd report --all    # every recorded action
-   sudo ./target/release/awd verify          # prove the log was not edited
+   sudo ./target/release/awd verify          # check the log was not edited or cut short
+   sudo ./target/release/awd anchor          # print <entries>:<mac> to keep off this machine
    ```
+
+   Keep the anchor somewhere no agent on this machine can write (another device, your phone, paper). Later, `sudo ./target/release/awd verify --anchor <entries>:<mac>` fails if the log was rolled back or rewritten, which the local check alone cannot catch.
+
+5. Upgrading from an older `awd`? A log written before head records existed fails to open. Run `sudo ./target/release/awd watch --adopt-existing-log --agents config/agents.toml` once: it accepts the log as it stands and writes its first head record.
 
 **Add an agent:** add an `[[agent]]` entry to `config/agents.toml` with its program name.
 

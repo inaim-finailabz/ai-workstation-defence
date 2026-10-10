@@ -53,7 +53,7 @@ pub fn explain(ev: &RawEvent, tag: &AgentTag, verdict: &Verdict, home: &str) -> 
         line.push_str(&format!(" -- {level}: {}", top.message));
     }
     if verdict.decision == Decision::Block {
-        line.push_str(" [policy: BLOCK -- recorded; enforcement arrives in v1]");
+        line.push_str(" [policy: WOULD BLOCK -- not enforced in this version, the action went ahead]");
     }
     line
 }

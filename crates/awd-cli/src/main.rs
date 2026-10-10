@@ -3,7 +3,8 @@
 //!   sudo awd watch --agents config/agents.toml        live, from macOS Endpoint Security
 //!   awd watch --source replay --input examples/sample-session.jsonl --data-dir ./awd-data
 //!   awd report --data-dir ./awd-data                   "did my agents touch private data?"
-//!   awd verify --data-dir ./awd-data                   prove the log was not edited
+//!   awd verify --data-dir ./awd-data                   check the log was not edited or cut short
+//!   awd anchor --data-dir ./awd-data                   print a fingerprint to keep off this machine
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use awd_collector::{eslogger, netpoll::NetPoller, replay};
 use awd_core::{AgentSpec, AgentTag, Attributor, EventKind, RawEvent};
-use awd_log::{load_or_create_key, read_entries, verify, AuditLog};
+use awd_log::{check_anchor, check_head, load_or_create_key, read_entries, verify, Anchor, AnchorCheck, AuditLog, LogError};
 use awd_policy::{explain, Decision, Policy, Severity, Verdict};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ const DEFAULT_DATA_DIR: &str = r"C:\ProgramData\AIWorkstationDefence";
 const DEFAULT_DATA_DIR: &str = "awd-data";
 
 #[derive(Parser)]
-#[command(name = "awd", version, about = "See exactly what AI agents do on this machine")]
+#[command(name = "awd", version, about = "Record and explain what AI agents do on this machine, as the operating system reports it")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -59,6 +60,10 @@ enum Cmd {
         /// Home directory of the person being protected (default: the invoking user's).
         #[arg(long)]
         home: Option<String>,
+        /// One-time upgrade for a log written before head records existed:
+        /// accept the log as it stands and give it its first head record.
+        #[arg(long)]
+        adopt_existing_log: bool,
     },
     /// Plain-language summary: what each agent did and what private data it touched.
     Report {
@@ -72,8 +77,18 @@ enum Cmd {
         #[arg(long)]
         home: Option<String>,
     },
-    /// Check that no entry was edited, removed or reordered.
+    /// Check that no entry was edited, removed, reordered or cut off the end.
     Verify {
+        #[arg(long, default_value = DEFAULT_DATA_DIR)]
+        data_dir: PathBuf,
+        /// An anchor printed earlier by `awd anchor` and kept off this machine.
+        /// Catches a log that was rolled back or rewritten together with its head record.
+        #[arg(long, value_name = "ENTRIES:MAC")]
+        anchor: Option<Anchor>,
+    },
+    /// Print the log's current anchor (entry count and last MAC). Keep it
+    /// somewhere agents on this machine cannot write, and pass it to `verify` later.
+    Anchor {
         #[arg(long, default_value = DEFAULT_DATA_DIR)]
         data_dir: PathBuf,
     },
@@ -104,17 +119,85 @@ fn invoking_home(explicit: Option<String>) -> String {
     std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()
 }
 
-fn paths(data_dir: &Path) -> (PathBuf, PathBuf) {
-    (data_dir.join("activity.log"), data_dir.join("log.key"))
+/// The activity log, its MAC key and its head record.
+fn paths(data_dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    (data_dir.join("activity.log"), data_dir.join("log.key"), data_dir.join("log.head"))
 }
 
-fn watch(source: Source, input: Option<PathBuf>, agents: &Path, data_dir: &Path, home: String) -> Result<()> {
+/// The result of checking the chain, the head record and, if given, an outside anchor.
+struct Integrity {
+    entries: u64,
+    last_mac: String,
+    /// Plain-language description of the first thing that failed.
+    problem: Option<String>,
+}
+
+fn integrity(data_dir: &Path, anchor: Option<&Anchor>) -> Result<Integrity> {
+    let (log_path, key_path, head_path) = paths(data_dir);
+    let key = std::fs::read(&key_path).with_context(|| format!("reading {}", key_path.display()))?;
+    let (entries, last_mac, mut problem) = if log_path.exists() {
+        let r = verify(&log_path, &key)?;
+        let broken = r.first_bad.map(|bad| {
+            format!("ALTERED: the chain breaks at entry {bad} ({} entries before it are intact)", r.entries)
+        });
+        (r.entries, r.last_mac, broken)
+    } else {
+        (0, String::new(), None)
+    };
+    if problem.is_none() {
+        problem = match check_head(&log_path, &head_path, &key) {
+            Ok(AnchorCheck::Holds) => None,
+            Ok(AnchorCheck::Truncated { found }) => Some(format!(
+                "CUT SHORT: the log holds {found} entries, fewer than its head record counts. The newest entries were removed."
+            )),
+            Ok(AnchorCheck::Rewritten) => {
+                Some("ALTERED: the log no longer contains the entry its head record points to.".into())
+            }
+            Err(LogError::HeadMissing) => Some(
+                "NO HEAD RECORD: the log has entries but its head record is gone, so cut-off entries cannot be ruled out. \
+                 If this log was written by an older awd, run `awd watch --adopt-existing-log` once."
+                    .into(),
+            ),
+            Err(LogError::HeadInvalid) => {
+                Some("ALTERED: the head record is damaged or was not written with this log's key.".into())
+            }
+            Err(e) => return Err(e.into()),
+        };
+    }
+    if let (None, Some(anchor)) = (&problem, anchor) {
+        problem = match check_anchor(&log_path, anchor)? {
+            AnchorCheck::Holds => None,
+            AnchorCheck::Truncated { found } => Some(format!(
+                "CUT SHORT: your anchor counts {} entries but the log holds {found}. The log was rolled back.",
+                anchor.entries
+            )),
+            AnchorCheck::Rewritten => Some(format!(
+                "REWRITTEN: entry {} is not the one your anchor recorded. The log was replaced.",
+                anchor.entries - 1
+            )),
+        };
+    }
+    Ok(Integrity { entries, last_mac, problem })
+}
+
+fn watch(
+    source: Source,
+    input: Option<PathBuf>,
+    agents: &Path,
+    data_dir: &Path,
+    home: String,
+    adopt_existing_log: bool,
+) -> Result<()> {
     let specs: AgentsFile = toml::from_str(
         &std::fs::read_to_string(agents).with_context(|| format!("reading {}", agents.display()))?,
     )?;
-    let (log_path, key_path) = paths(data_dir);
+    let (log_path, key_path, head_path) = paths(data_dir);
     let key = load_or_create_key(&key_path)?;
-    let mut log = AuditLog::open(&log_path, key)?;
+    if adopt_existing_log && log_path.exists() && !head_path.exists() {
+        let anchor = AuditLog::adopt(&log_path, &head_path, &key)?;
+        eprintln!("awd: accepted the existing log as it stands ({} entries) and wrote its first head record", anchor.entries);
+    }
+    let mut log = AuditLog::open(&log_path, &head_path, key)?;
     let mut attributor = Attributor::new(specs.agent);
     let mut policy = Policy::new(home.clone(), data_dir.to_string_lossy());
 
@@ -150,6 +233,7 @@ fn watch(source: Source, input: Option<PathBuf>, agents: &Path, data_dir: &Path,
                 }
             });
             eprintln!("awd: watching AI agents (Ctrl+C to stop). Log: {}", log_path.display());
+            eprintln!("awd: this version records and alerts only. It does not block anything.");
         }
     }
 
@@ -171,11 +255,14 @@ fn watch(source: Source, input: Option<PathBuf>, agents: &Path, data_dir: &Path,
 }
 
 fn report(data_dir: &Path, agent: Option<String>, all: bool, home: String) -> Result<()> {
-    let (log_path, key_path) = paths(data_dir);
-    let key = std::fs::read(&key_path).with_context(|| format!("reading {}", key_path.display()))?;
-    let check = verify(&log_path, &key)?;
-    if let Some(bad) = check.first_bad {
-        println!("WARNING: the log was altered at entry {bad}. Entries from there on cannot be trusted.\n");
+    let (log_path, _, _) = paths(data_dir);
+    let check = integrity(data_dir, None)?;
+    if let Some(problem) = &check.problem {
+        println!("WARNING: the log failed its integrity check. What follows cannot be trusted as complete.\n  {problem}\n");
+    }
+    if !log_path.exists() {
+        println!("No AI agent activity recorded yet.");
+        return Ok(());
     }
 
     #[derive(Default)]
@@ -254,7 +341,7 @@ fn report(data_dir: &Path, agent: Option<String>, all: bool, home: String) -> Re
             }
         }
         if s.blocked > 0 {
-            println!("  Policy would have blocked {} actions.", s.blocked);
+            println!("  Not blocked: {} actions the policy marks for blocking went ahead (this version only records).", s.blocked);
         }
         let count = |sev| s.alerts.get(&sev).copied().unwrap_or(0);
         println!(
@@ -271,27 +358,33 @@ fn report(data_dir: &Path, agent: Option<String>, all: bool, home: String) -> Re
             println!("  {l}");
         }
     }
-    println!("\nLog integrity: {} entries, {}", check.entries, if check.first_bad.is_none() { "unaltered" } else { "ALTERED" });
+    let state = if check.problem.is_none() { "chain and head record intact" } else { "FAILED (see the warning above)" };
+    println!("\nLog integrity: {} entries, {state}", check.entries);
     Ok(())
 }
 
 fn main() -> Result<()> {
     match Cli::parse().cmd {
-        Cmd::Watch { source, input, agents, data_dir, home } => {
-            watch(source, input, &agents, &data_dir, invoking_home(home))
+        Cmd::Watch { source, input, agents, data_dir, home, adopt_existing_log } => {
+            watch(source, input, &agents, &data_dir, invoking_home(home), adopt_existing_log)
         }
         Cmd::Report { data_dir, agent, all, home } => report(&data_dir, agent, all, invoking_home(home)),
-        Cmd::Verify { data_dir } => {
-            let (log_path, key_path) = paths(&data_dir);
-            let key = std::fs::read(&key_path).with_context(|| format!("reading {}", key_path.display()))?;
-            let r = verify(&log_path, &key)?;
-            match r.first_bad {
-                None => println!("OK: {} entries, chain intact", r.entries),
-                Some(bad) => {
-                    println!("ALTERED: the chain breaks at entry {bad} ({} entries before it are intact)", r.entries);
-                    std::process::exit(2);
-                }
+        Cmd::Verify { data_dir, anchor } => {
+            let check = integrity(&data_dir, anchor.as_ref())?;
+            if let Some(problem) = check.problem {
+                println!("{problem}");
+                std::process::exit(2);
             }
+            let anchored = if anchor.is_some() { ", anchor holds" } else { "" };
+            println!("OK: {} entries, chain intact, head record matches{anchored}", check.entries);
+            Ok(())
+        }
+        Cmd::Anchor { data_dir } => {
+            let check = integrity(&data_dir, None)?;
+            if let Some(problem) = check.problem {
+                bail!("not printing an anchor for a log that fails its check. {problem}");
+            }
+            println!("{}", Anchor { entries: check.entries, last_mac: check.last_mac });
             Ok(())
         }
     }

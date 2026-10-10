@@ -1,15 +1,21 @@
-//! Trust tests: checks anyone can run to confirm this tool is not a trojan horse.
+//! Trust tests: tripwires anyone can run, which make sensitive changes to
+//! this tool show up in a public diff.
 //!
 //!     cargo test --test trust
 //!
-//! They read the project's own source code and dependency lock file and fail
-//! if the tool gains any way to reach the network, runs any program other
-//! than the two it documents, reads environment secrets, uses `unsafe`, or
-//! touches files anywhere other than the reviewed call sites listed below.
+//! They search the project's own source code and dependency lock file and
+//! fail if they find the usual ways to reach the network, a program other
+//! than the two it documents, a read of environment secrets, `unsafe`, or a
+//! file-access call anywhere other than the reviewed call sites listed below.
+//!
+//! These are text searches for known patterns. They are safeguards, not
+//! proof: they do not show that the tool cannot communicate or misbehave.
+//! Code written to avoid these exact words, a dependency's build script, or
+//! `unsafe` and system calls inside a dependency would get past them.
 //!
 //! If one of these tests fails after a change, that change must be reviewed
 //! and the expectation here updated *in the same commit*, where every reader
-//! can see it. That is the point: nothing sensitive can be added quietly.
+//! can see it. That is the point: the obvious routes cannot be added quietly.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -127,7 +133,7 @@ fn contains_no_unsafe_code() {
 
 /// Every place the shipped code opens, reads, writes or deletes a file.
 /// Each one was reviewed:
-///   awd-log     -- the activity log and its key, in the data directory only
+///   awd-log     -- the activity log, its key and its head record, in the data directory only
 ///   awd-collector/replay -- the replay file the user names on the command line
 ///   awd-cli     -- the agents config file and the log key
 /// No code reads the files agents touch: the log records paths reported by
@@ -149,14 +155,14 @@ fn file_access_happens_only_at_reviewed_call_sites() {
         }
     }
     let expected: BTreeMap<(String, &str), usize> = [
-        ("crates/awd-log/src/lib.rs", "fs::read(", 1),            // load the log key
+        ("crates/awd-log/src/lib.rs", "fs::read(", 2),            // load the log key; read the head record
         ("crates/awd-log/src/lib.rs", "create_dir_all(", 1),      // create the data directory
         ("crates/awd-log/src/lib.rs", "set_permissions(", 1),     // ...and make it owner-only (0700, Unix)
-        ("crates/awd-log/src/lib.rs", "File::open(", 2),          // read the log (verify, read entries)
-        ("crates/awd-log/src/lib.rs", "OpenOptions::new()", 2),   // write a new key (0600); append to the log (0600)
+        ("crates/awd-log/src/lib.rs", "File::open(", 3),          // read the log (verify, anchor check, read entries)
+        ("crates/awd-log/src/lib.rs", "OpenOptions::new()", 3),   // write a new key, append to the log, write the head record (all 0600)
         ("crates/awd-collector/src/replay.rs", "File::open(", 1), // the replay file named on the command line
         ("crates/awd-cli/src/main.rs", "fs::read_to_string(", 1), // config/agents.toml
-        ("crates/awd-cli/src/main.rs", "fs::read(", 2),           // the log key, for report and verify
+        ("crates/awd-cli/src/main.rs", "fs::read(", 1),           // the log key, for report, verify and anchor
     ]
     .into_iter()
     .map(|(f, p, n)| ((f.to_string(), p), n))

@@ -4,7 +4,7 @@
 #   ./scripts/verify.sh
 #
 # Builds from source, runs every test, replays a sample session, checks the
-# log, and runs the tool with the network cut off to show it needs none.
+# log, and runs that same session with the network cut off.
 # Nothing here needs root, and nothing touches your real files.
 
 set -euo pipefail
@@ -33,6 +33,12 @@ pass "report produced"
 
 step "4. Check the log, then tamper with it"
 "$AWD" verify --data-dir "$WORK/data"
+cp -R "$WORK/data" "$WORK/cut"
+head -n 5 "$WORK/data/activity.log" > "$WORK/cut/activity.log"
+if "$AWD" verify --data-dir "$WORK/cut"; then
+  echo "cutting off the newest entries was NOT detected"; exit 1
+fi
+pass "cutting off the newest entries was detected"
 sed 's/cart.ts/cart.js/' "$WORK/data/activity.log" > "$WORK/edited" && cat "$WORK/edited" > "$WORK/data/activity.log"
 if "$AWD" verify --data-dir "$WORK/data"; then
   echo "tampering was NOT detected"; exit 1
@@ -51,7 +57,7 @@ case "$(uname -s)" in
       rm -rf "$WORK/net"
       export -f run_all; export AWD WORK
       sandbox-exec -p '(version 1)(allow default)(deny network*)' bash -c run_all
-      pass "ran fully inside a macOS sandbox that denies all network access"
+      pass "the replayed session ran inside a macOS sandbox that denies all network access"
     else
       skip "sandbox-exec not available"
     fi
@@ -63,14 +69,14 @@ case "$(uname -s)" in
       if grep -E 'AF_INET6?' "$WORK/trace"; then
         echo "network activity detected"; exit 1
       fi
-      pass "strace saw no internet sockets (AF_INET/AF_INET6) during a full run"
+      pass "strace saw no internet sockets (AF_INET/AF_INET6) during the replayed session"
     else
       skip "strace not installed (sudo apt install strace)"
     fi
     if command -v unshare >/dev/null && unshare -rn true 2>/dev/null; then
       rm -rf "$WORK/net"
       unshare -rn bash -c "$(declare -f run_all); AWD='$AWD' WORK='$WORK' run_all"
-      pass "ran fully inside a namespace with no network at all"
+      pass "the replayed session ran inside a namespace with no network at all"
     else
       skip "unprivileged network namespaces unavailable"
     fi
@@ -79,3 +85,4 @@ esac
 
 step "Done"
 echo "  Every check above ran on your machine, from source you can read."
+echo "  They cover a replayed session. Live capture is not exercised here: see docs/TESTING.md."

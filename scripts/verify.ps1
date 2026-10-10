@@ -33,6 +33,11 @@ try {
 
     Step "4. Check the log, then tamper with it"
     & $awd verify --data-dir "$work\data"; Check
+    Copy-Item -Recurse "$work\data" "$work\cut"
+    Get-Content "$work\data\activity.log" -TotalCount 5 | Set-Content "$work\cut\activity.log"
+    & $awd verify --data-dir "$work\cut"
+    if ($LASTEXITCODE -ne 2) { throw "cutting off the newest entries was NOT detected" }
+    Pass "cutting off the newest entries was detected"
     $log = "$work\data\activity.log"
     (Get-Content $log -Raw).Replace("cart.ts", "cart.js") | Set-Content $log -NoNewline
     & $awd verify --data-dir "$work\data"
@@ -49,7 +54,7 @@ try {
             & $awd watch --source replay --input examples\sample-session.jsonl --data-dir "$work\net" --home /Users/ana | Out-Null; Check
             & $awd report --data-dir "$work\net" --home /Users/ana | Out-Null; Check
             & $awd verify --data-dir "$work\net" | Out-Null; Check
-            Pass "ran fully with Windows Firewall blocking all its outbound traffic"
+            Pass "the replayed session ran with Windows Firewall blocking all its outbound traffic"
         } finally {
             Remove-NetFirewallRule -DisplayName $rule
         }
@@ -62,3 +67,4 @@ try {
 
 Step "Done"
 Write-Host "  Every check above ran on your machine, from source you can read."
+Write-Host "  They cover a replayed session. Live capture is not exercised here: see docs\TESTING.md."
